@@ -1,0 +1,6 @@
+; $Id: $
+name = Helpful
+description = Helpful functions.
+core = 6.x
+package = Z5
+php = 5.1
