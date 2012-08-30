@@ -1,0 +1,6 @@
+name = Topiary
+description = Restrict what pages users can edit by menu.
+core = 6.x
+package = Z5
+php = 5.1
+dependencies[] = helpful

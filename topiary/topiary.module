@@ -1,0 +1,683 @@
+<?php
+
+/**
+ * @file
+ * TOPIARY module
+ *
+ * This module allows you to restrict what pages (Page content type) users can edit based on menus.
+ *
+ * For each user role you can create 1 or more trees. This is called a roleforest.
+ * Each tree is based on a menu and a node.
+ * You can include the children of that node, forming a tree.
+ * You can exclude nodes from the children of the root node, which is like pruning the tree.
+ *
+ * Keep in mind that a role can have more than one tree,
+ * and a user can have more than one role.
+ * A user can have 1 little tree, or a forest.
+ */
+ 
+
+/**
+ * hook_perm
+ * - administer topiary
+ * - bypass topiary
+ */
+function topiary_perm() {
+	return array('administer topiary', 'bypass topiary');
+}
+
+
+/**
+ * hook_menu
+ */
+function topiary_menu() {
+	$items = array();
+	
+	$items['admin/settings/topiary'] = array(
+		'type' => MENU_NORMAL_ITEM,
+		'title' => 'Topiary',
+		'page callback' => 'drupal_get_form',
+		'page arguments' => array('topiary_admin_list'),
+		'access callback' => 'user_access',
+		'access arguments' => array('administer topiary'),
+	);
+	
+	$items['admin/settings/topiary/new'] = array(
+		'type' => MENU_CALLBACK,
+		'title' => 'New roleforest',
+		'page callback' => 'drupal_get_form',
+		'page arguments' => array('topiary_admin_new'),
+		'access callback' => 'user_access',
+		'access arguments' => array('administer topiary'),
+	);
+	
+	$items['admin/settings/topiary/edit/%topiary_id'] = array(
+		'type' => MENU_CALLBACK,
+		'title' => 'Edit roleforest',
+		'page callback' => 'drupal_get_form',
+		'page arguments' => array('topiary_admin_form', 4),
+		'access callback' => 'user_access',
+		'access arguments' => array('administer topiary'),
+	);
+	
+	$items['topiary'] = array(
+		'type' => MENU_CALLBACK,
+		'title' => 'Pages you can edit',
+		'page callback' => 'drupal_get_form',
+		'page arguments' => array('topiary_display'),
+		'access callback' => true
+	);
+
+	$items['topiary/test/menuforest'] = array(
+		'type' => MENU_CALLBACK,
+		'title' => 'TEST',
+		'page callback' => 'topiary_test_menuforest',
+		'access callback' => 'user_access',
+		'access arguments' => array('administer topiary'),
+	);
+
+	$items['topiary/test/nids'] = array(
+		'type' => MENU_CALLBACK,
+		'title' => 'TEST',
+		'page callback' => 'topiary_test_nids',
+		'access callback' => 'user_access',
+		'access arguments' => array('administer topiary'),
+	);
+	
+	return $items;
+}
+
+
+function topiary_id_load($topiary_id) {
+	$sql = 'SELECT * FROM topiary WHERE topiary_id = "' . $topiary_id . '"';
+	$roleforest = db_fetch_array(db_query($sql));
+	$sql = 'SELECT * FROM topiary_tree WHERE topiary_id = "' . $topiary_id . '" ORDER BY topiary_tree_id ';
+	$res = db_query($sql);
+	$roleforest['trees'] = array();
+	while ($tree = db_fetch_array($res)) {
+		$roleforest['trees'][$tree['topiary_tree_id']] = $tree;
+	}
+	return $roleforest;
+}
+
+
+/**
+ * Topiary Admin page.
+ * Lists all defined roleforests.
+ */
+function topiary_admin_list() {
+	$form = array();
+
+	$roles = user_roles(true);
+	
+	$roleforests = array();
+	$sql = 'SELECT topiary_id, topiary_role FROM topiary ORDER BY topiary_role ';
+	$res = db_query($sql);
+	while ($row = db_fetch_array($res)) {
+		$roleforests[$row['topiary_id']] = $row['topiary_role'];
+	}
+	
+	$list = 'No roleforests yet.';
+	if (count($roleforests)) {
+		$list = '';
+		foreach ($roleforests as $topiary_id => $topiary_role) {
+			$list .= '<li><a href="/admin/settings/topiary/edit/' . $topiary_id . '">' . $roles[$topiary_role] . '</a></li>';
+		}
+	}
+	
+	$form['list'] = array(
+		'#prefix' => '<ul id="topiary-admin-list">',
+		'#suffix' => '</ul>',
+		'#value' => $list
+	);
+	
+	$form['new'] = array(
+		'#type' => 'submit',
+		'#value' => 'Create new'
+	);
+	
+	return $form;
+}
+
+
+/**
+ * Topiary Admin submit
+ */
+function topiary_admin_list_submit($form, &$form_state) {
+	if ($form_state['values']['op'] == 'Create new') {
+		drupal_goto('admin/settings/topiary/new');
+	}
+}
+
+
+/**
+ * Topiary Admin New
+ * Define a roleforest.
+ * This would be where you pick roles and define menu trees.
+ * get a list of user roles
+ * pick one
+ * get a list of menus
+ * pick one
+ * specify a nid
+ * include children or not?
+ * list nids to exclude from this tree
+ */
+function topiary_admin_new() {
+	$form = array();
+	
+	$roles = user_roles(true);
+	$menus = menu_get_names();
+	
+	$form['role'] = array(
+		'#type' => 'select',
+		'#title' => 'Role',
+		'#description' => 'This is the user role you want to define permissions for.',
+		'#options' => $roles,
+		'#required' => true
+	);
+
+	$form['menu'] = array(
+		'#type' => 'select',
+		'#title' => 'Menu',
+		'#description' => 'Which menu to base this tree on.',
+		'#options' => $menus,
+		'#default_value' => array_search('primary-links', $menus),
+		'#required' => true
+	);
+	$form['nid'] = array(
+		'#type' => 'textfield',
+		'#title' => 'Node ID',
+		'#description' => 'The Node ID from which to begin the tree.',
+		'#required' => true
+	);
+	$form['children'] = array(
+		'#type' => 'checkbox',
+		'#title' => 'Include the children of this Node ID'
+	);
+	$form['exclude'] = array(
+		'#type' => 'textfield',
+		'#title' => 'Node IDs to exclude',
+		'#description' => 'Separate Node IDs with commas to prune pages from the tree.'
+	);
+	
+	$form['save'] = array(
+		'#type' => 'submit',
+		'#value' => 'Save'
+	);
+	
+	return $form;
+}
+
+
+/**
+ * Submit a new roleforest.
+ */
+function topiary_admin_new_submit($form, &$form_state) {
+	// so we'll do this in two parts
+	$data = array('topiary_role' => $form_state['values']['role']);
+	$sql = helpful_db_build_insert('topiary', $data);
+	$topiary_id = helpful_db_insert($sql);
+	
+	$menus = menu_get_names();
+	
+	$exclude = helpful_explode_trim(",", $form_state['values']['exclude']);
+	$data = array(
+		'topiary_id' => $topiary_id,
+		'topiary_tree_menu' => $menus[$form_state['values']['menu']],
+		'topiary_tree_nid' => $form_state['values']['nid'],
+		'topiary_tree_children' => $form_state['values']['children'],
+		'topiary_tree_exclude' => implode(",", $exclude)
+	);
+	$sql = helpful_db_build_insert('topiary_tree', $data);
+	helpful_db_insert($sql);
+	
+	drupal_set_message('Roleforest created.');
+	drupal_goto('admin/settings/topiary/edit/' . $topiary_id);
+}
+
+
+/**
+ * Edit a roleforest.
+ */
+function topiary_admin_form($foo, $roleforest) {
+
+	$form = array();
+	
+	$roles = user_roles(true);
+	$menus = menu_get_names();
+	
+	$form['role'] = array(
+		'#prefix' => '<strong>Role:</strong> ',
+		'#value' => $roles[$roleforest['topiary_role']]
+	);
+	
+	$i = 1;
+	foreach ($roleforest['trees'] as $tree_id => $tree) {
+		$k = 'tree_' . $tree_id;
+		$form[$k] = array(
+			'#type' => 'fieldset',
+			'#title' => 'Tree #' . $i
+		);
+		
+		$form[$k]['menu_' . $tree_id] = array(
+			'#type' => 'select',
+			'#title' => 'Menu',
+			'#description' => 'Which menu to base this tree on.',
+			'#options' => $menus,
+			'#default_value' => array_search($tree['topiary_tree_menu'], $menus),
+			'#required' => true
+		);
+		$form[$k]['nid_' . $tree_id] = array(
+			'#type' => 'textfield',
+			'#title' => 'Node ID',
+			'#description' => 'The Node ID from which to begin the tree.',
+			'#default_value' => $tree['topiary_tree_nid'],
+			'#required' => true
+		);
+		$form[$k]['children_' . $tree_id] = array(
+			'#type' => 'checkbox',
+			'#title' => 'Include the children of this Node ID',
+			'#default_value' => $tree['topiary_tree_children'],			
+		);
+		$form[$k]['exclude_' . $tree_id] = array(
+			'#type' => 'textfield',
+			'#title' => 'Node IDs to exclude',
+			'#description' => 'Separate Node IDs with commas to prune pages from the tree.',
+			'#default_value' => $tree['topiary_tree_exclude'],			
+		);
+		$form[$k]['delete_' . $tree_id] = array(
+			'#type' => 'checkbox',
+			'#title' => 'Delete this tree',
+		);
+		
+		$i++;
+	}
+
+
+	$form['tree_new'] = array(
+		'#type' => 'fieldset',
+		'#title' => 'New Tree'
+	);
+
+	$form['tree_new']['menu_new'] = array(
+		'#type' => 'select',
+		'#title' => 'Menu',
+		'#description' => 'Which menu to base this tree on.',
+		'#options' => $menus,
+		'#default_value' => array_search('primary-links', $menus),
+	);
+	$form['tree_new']['nid_new'] = array(
+		'#type' => 'textfield',
+		'#title' => 'Node ID',
+		'#description' => 'The Node ID from which to begin the tree.',
+	);
+	$form['tree_new']['children_new'] = array(
+		'#type' => 'checkbox',
+		'#title' => 'Include the children of this Node ID'
+	);
+	$form['tree_new']['exclude_new'] = array(
+		'#type' => 'textfield',
+		'#title' => 'Node IDs to exclude',
+		'#description' => 'Separate Node IDs with commas to prune pages from the tree.'
+	);
+	
+	$form['topiary_id'] = array(
+		'#type' => 'hidden',
+		'#value' => $roleforest['topiary_id']
+	);
+	
+	$form['save'] = array(
+		'#type' => 'submit',
+		'#value' => 'Save'
+	);
+	$form['delete'] = array(
+		'#type' => 'submit',
+		'#value' => 'Delete'
+	);
+	
+	return $form;
+}
+
+
+
+/**
+ * Topiary Admin Edit submit.
+ */
+function topiary_admin_form_submit($form, &$form_state) {
+
+	$values = $form_state['values'];
+	$topiary_id = $values['topiary_id'];
+	
+	if ($values['op'] == 'Delete') {
+		$sql = 'DELETE FROM topiary_tree WHERE topiary_id = "' . $topiary_id . '" ';
+		db_query($sql);
+		$sql = 'DELETE FROM topiary WHERE topiary_id = "' . $topiary_id . '" ';
+		db_query($sql);
+		drupal_set_message('Roleforest deleted.');
+		drupal_goto('admin/settings/topiary');
+	}
+
+	$menus = menu_get_names();
+
+	// handle updates
+	foreach ($values as $key => $value) {
+		if (helpful_str_begins_with($key, 'nid_')) {
+			$tree_id = substr($key, 4);
+			if ($tree_id != 'new') {
+			
+				// are we deleting this tree?
+				if ($values['delete_' . $tree_id] == 1) {
+					
+					$sql = 'DELETE FROM topiary_tree WHERE topiary_tree_id = "' . $tree_id . '" ';
+					
+				} else {
+			
+					$exclude = helpful_explode_trim(",", $values['exclude_' . $tree_id]);
+					$data = array(
+						'topiary_tree_menu' => $menus[$values['menu_' . $tree_id]],
+						'topiary_tree_nid' => $value,
+						'topiary_tree_children' => $values['children_' . $tree_id],
+						'topiary_tree_exclude' => implode(",", $exclude)
+					);
+					$sql = helpful_db_build_update('topiary_tree', 'topiary_tree_id', $tree_id, $data);
+					
+				}
+
+				db_query($sql);
+			
+			} // end if this is an existing tree
+		} // end if nid field
+	} // end foreach value
+	
+	
+	
+	// now handle new
+	if ($values['nid_new'] != '') {
+		$exclude = helpful_explode_trim(",", $values['exclude_new']);
+		$data = array(
+			'topiary_id' => $topiary_id,
+			'topiary_tree_menu' => $menus[$values['menu_new']],
+			'topiary_tree_nid' => $values['nid_new'],
+			'topiary_tree_children' => $values['children_new'],
+			'topiary_tree_exclude' => implode(",", $exclude)
+		);
+		$sql = helpful_db_build_insert('topiary_tree', $data);
+		helpful_db_insert($sql);		
+	}
+	
+	drupal_set_message('Roleforest updated.');
+
+}
+
+
+/**
+ * Given an array of roles, build a forest of menus.
+ *
+ * @param array $roles
+ * @param boolean $as_html
+ *
+ * @return html|array
+ */
+function topiary_menuforest($roles, $as_html = true) {
+
+	$menuforest = '';
+	if (!$as_html) $menuforest = array();
+
+	$topiary_ids = array();
+	$sql = 'SELECT topiary_id FROM topiary WHERE topiary_role IN (' . implode(", ", array_keys($roles)) . ')';
+	$res = db_query($sql);
+	while ($r = db_fetch_array($res)) {
+		$topiary_ids[] = $r['topiary_id'];
+	}
+	
+	if (count($topiary_ids) == 0) return $menuforest;
+	
+	$menu_cache = array();
+	
+	foreach ($topiary_ids as $topiary_id) {
+		$roleforest = topiary_id_load($topiary_id);
+		
+		foreach ($roleforest['trees'] as $tree_id => $tree) {
+		
+			// load the menu
+			$menu = $tree['topiary_tree_menu'];
+			if (!array_key_exists($menu, $menu_cache)) {
+				$menu_cache[$menu] = menu_tree_all_data($menu);
+			}
+			
+			// crawl the menu
+			$menutree = topiary_menutree($menu_cache[$menu], $tree);
+			
+			if ($as_html) {
+				// render that as html
+				if (count($menutree)) $menuforest .= '<div class="menuforest-tree">' . menu_tree_output($menutree) . '</div>';
+			} else {
+				$menuforest[] = $menutree;
+			}
+			
+		} // end each tree
+		
+	} // end each topiary id
+	
+	return $menuforest;
+
+}
+
+
+/**
+ * Given a menu, find the tree.
+ *
+ * A tree begins at $tree['topiary_tree_nid']
+ * If $tree['topiary_tree_children'] is true, we include everything under topiary_tree_nid
+ * If there are nids to be excluded listed in $tree['topiary_tree_exclude'] we need to cut those (and their children) out of the tree
+ *
+ * @param array $menu
+ * @param array $tree
+ *
+ * @return array
+ */
+function topiary_menutree(&$menu, $tree) {
+
+	// first we need to find the root
+	$root = topiary_menu_search($menu, $tree['topiary_tree_nid']);
+	
+	if ($root === false) return array();
+	
+	$menukey = current(array_keys($root));
+	
+	// if we're not including children, let's prune all of them
+	if ($tree['topiary_tree_children'] == 0) {
+		$root[$menukey]['below'] = false;
+		
+	} else {
+		// if we're keeping children, let's prune selectively
+		$exclude = explode(",", $tree['topiary_tree_exclude']);
+		foreach ($exclude as $xnid) {
+			$root = topiary_menu_prune($root, trim($xnid));
+		}		
+	}
+
+	// this changes all the links to "edit" links
+	$root = topiary_menu_editify($root);
+	
+	return $root;
+
+}
+
+
+/**
+ * Search a menu for a node id and return that menu item (and it's children).
+ *
+ * @param array $menu
+ * @param int $nid
+ *
+ * @return array|false
+ */
+function topiary_menu_search(&$menu, $nid) {
+
+	foreach ($menu as $k => $v) {
+		if ($v['link']['link_path'] == 'node/' . $nid) {
+			return array($k => $v);
+		} else if ($v['below']) {
+			$subsearch = topiary_menu_search($v['below'], $nid);
+			if (is_array($subsearch)) return $subsearch;
+		}
+	}
+	
+	return false;
+}
+
+
+/**
+ * Prune this node (and it's children) out of a menu.
+ *
+ * @param array $menu
+ * @param int $nid
+ *
+ * @return array
+ */
+function topiary_menu_prune($menu, $nid) {
+
+	foreach ($menu as $k => $v) {
+		if ($v['link']['link_path'] == 'node/' . $nid) {
+			unset($menu[$k]);
+			return $menu;
+		} else if ($v['below']) {
+			$menu[$k]['below'] = topiary_menu_prune($v['below'], $nid);
+		}
+	}
+	
+	return $menu;
+	
+}
+
+
+/**
+ * Change all of the links in this menu to "edit" links.
+ *
+ * @param array $menu
+ *
+ * @return array
+ */
+function topiary_menu_editify($menu) {
+
+	foreach ($menu as $k => $v) {
+		$menu[$k]['link']['href'] .= '/edit';
+		if ($v['below']) {
+			$menu[$k]['below'] = topiary_menu_editify($v['below']);
+		}
+	}
+	
+	return $menu;
+
+}
+
+
+
+function topiary_test_menuforest() {
+	global $user;
+	echo topiary_menuforest($user->roles);	
+	exit;
+}
+
+
+/**
+ * Drupal Forms API to display your menuforest.
+ *
+ * For CSS use:
+ * - the entire menuforest is #menuforest
+ * - each tree is .menuforest-tree
+ */
+function topiary_display() {
+	$form = array();
+	
+	global $user;
+	$menuforest = topiary_menuforest($user->roles);
+	
+	$form['topiary'] = array(
+		'#value' => $menuforest,
+		'#prefix' => '<div id="menuforest">',
+		'#suffix' => '</div>'
+	);
+	
+	return $form;
+}
+
+
+/**
+ * Given a menuforest, reduce it to an array of node ids.
+ *
+ * @param array $roles
+ * @param array $menuforest
+ *
+ * @return array
+ */
+function topiary_nids($roles, $menuforest = array()) {
+	$nids = array();
+	
+	if (count($menuforest) == 0) $menuforest = topiary_menuforest($roles, false);
+	
+	foreach ($menuforest as $k => $v) {
+		if (!array_key_exists('link', $v)) {
+			$k = current(array_keys($v));
+			$v = $v[$k];
+		}
+		if (substr($v['link']['link_path'], 0, 5) == 'node/') {
+			$nids[] = substr($v['link']['link_path'], 5);
+		}
+		if ($v['below']) {
+			$subnids = topiary_nids($roles, $v['below']);
+			foreach ($subnids as $subnid) {
+				$nids[] = $subnid;
+			}
+		}
+	}
+	
+	return $nids;
+}
+
+
+function topiary_test_nids() {
+	global $user;
+	helpful_debug(topiary_nids($user->roles));
+	exit;
+}
+
+
+/**
+ * Can the current user edit this node?
+ *
+ * @param object $node
+ *
+ * @return boolean
+ */
+function topiary_can_edit($node) {
+	if (user_access('bypass topiary')) return user_access('edit any page content');
+	global $user;
+	$nids = topiary_nids($user->roles);
+	if (count($nids) > 0) return (in_array($node->nid, $nids));
+	return user_access('edit any page content');
+}
+
+
+/**
+ * hook_menu_alter
+ * This is the super tricky bit.
+ * We overwrite the "node edit" item in the menu
+ * so that we can put our own access callback on it.
+ * Borrowed and adapted from the content_access module
+ * http://drupal.org/project/content_access
+ */
+function topiary_menu_alter(&$items) {
+  $items['node/%node/edit'] = array(
+    'title' => 'Edit',
+    'page callback' => 'node_page_edit',
+    'page arguments' => array(1),
+    'access callback' => 'topiary_can_edit', // Our callback.
+    'access arguments' => array(1), // Our arguments.
+    'weight' => 1,
+    'file' => 'node.pages.inc',
+    'file path' => drupal_get_path('module', 'node'), // We need this!
+    'type' => MENU_LOCAL_TASK,
+  );	
+}
