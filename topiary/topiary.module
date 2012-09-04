@@ -197,7 +197,7 @@ function topiary_admin_new() {
 	$form['exclude'] = array(
 		'#type' => 'textfield',
 		'#title' => 'Node IDs to exclude',
-		'#description' => 'Separate Node IDs with commas to prune pages from the tree.'
+		'#description' => 'Separate Node IDs with commas to prune pages from the tree. To specify a range: x-y'
 	);
 	
 	$form['save'] = array(
@@ -282,7 +282,7 @@ function topiary_admin_form($foo, $roleforest) {
 		$form[$k]['exclude_' . $tree_id] = array(
 			'#type' => 'textfield',
 			'#title' => 'Node IDs to exclude',
-			'#description' => 'Separate Node IDs with commas to prune pages from the tree.',
+			'#description' => 'Separate Node IDs with commas to prune pages from the tree. To specify a range: x-y',
 			'#default_value' => $tree['topiary_tree_exclude'],			
 		);
 		$form[$k]['delete_' . $tree_id] = array(
@@ -493,7 +493,17 @@ function topiary_menutree(&$menu, $tree) {
 		// if we're keeping children, let's prune selectively
 		$exclude = explode(",", $tree['topiary_tree_exclude']);
 		foreach ($exclude as $xnid) {
-			$root = topiary_menu_prune($root, trim($xnid));
+			// $xnid might look like 45 or it might looks like 45-50 so handle accordingly
+			$excludex = explode("-", $xnid);
+			if (count($excludex) == 1) {
+				$root = topiary_menu_prune($root, trim($xnid));
+			} else {
+				$excludea = trim($excludex[0]);
+				$excludeb = trim($excludex[1]);
+				for ($x = $excludea; $x <= $excludeb; $x++) {
+					$root = topiary_menu_prune($root, $x);
+				}
+			}
 		}		
 	}
 
