@@ -122,7 +122,7 @@ function helpful_explode_trim($delimiter, $str) {
  * @return TRUE or FALSE
  */
 function helpful_valid_phone($phone, $regex = '') {
-	if ($regex == '') $regex = '/[^0-9\+\s\(\)\-]/';
+	if ($regex == '') $regex = '/[^x0-9\+\s\(\)\-]/';
 	$fone = preg_replace($regex, '', $phone);
 	return $phone == $fone;
 }
