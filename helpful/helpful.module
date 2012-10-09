@@ -1851,10 +1851,13 @@ function helpful_domain_name() {
 /**
  * Headers for Email.
  *
+ * @param string $name
+ *
  * @return string
  */
-function helpful_email_headers() {
-	$headers  = "From: Chad Wolf <mynabcep@nabcep.org>\r\n";
+function helpful_email_headers($name = 'Chad Wolf') {
+	$headers  = "From: " . $name . " <mynabcep@nabcep.org>\r\n";
 	$headers .= "Content-Type: text/html; charset=UTF-8; format=flowed\r\n";
 	return $headers;
 }
+
