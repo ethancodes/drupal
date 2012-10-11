@@ -1,0 +1,180 @@
+<?php
+
+/**
+ * @file
+ * LAST LOGIN module
+ *
+ * Creates a report/view which lists users and their last login time stamps. Organized by role.
+ *
+ */
+
+
+/**
+ * hook_perm
+ * - can view last login
+ */
+function last_login_perm() {
+	return array('can view last login');
+}
+
+
+/**
+ * hook_menu
+ */
+function last_login_menu() {
+	$items = array();
+	
+	$items['last_login'] = array(
+		'title' => 'Last Login',
+		'page callback' => 'drupal_get_form',
+		'page arguments' => array('last_login_go'),
+		'access callback' => 'user_access',
+		'access arguments' => array('can view last login'),
+		'type' => MENU_CALLBACK
+	);
+
+	$items['last_login/%value'] = array(
+		'title' => 'Last Login',
+		'page callback' => 'drupal_get_form',
+		'page arguments' => array('last_login_go', 1),
+		'access callback' => 'user_access',
+		'access arguments' => array('can view last login'),
+		'type' => MENU_CALLBACK
+	);
+		
+	return $items;
+}
+
+
+/**
+ * Build the report, yo.
+ *
+ * @param mixed $foo ignored
+ * @param int $rid a role id
+ */
+function last_login_go($foo, $rid = -1) {
+
+#	helpful_debug($rid, 'rid');
+
+	$form = array();
+
+	$roles = user_roles(true);
+
+	$form['role'] = array(
+		'#type' => 'select',
+		'#title' => 'Role',
+		'#options' => $roles,
+		'#default_value' => ($rid > 0) ? $rid : 1,
+		'#required' => true
+	);
+	
+	$form['submit'] = array(
+		'#type' => 'submit',
+		'#value' => 'View'
+	);
+
+	$sql  = 'SELECT users.uid, mail, login ';
+	$sql .= 'FROM users, users_roles ';
+	$sql .= 'WHERE users.uid = users_roles.uid ';
+	if ($rid > 0) $sql .= 'AND users_roles.rid = "' . $rid . '" ';
+	$sql .= 'ORDER BY mail ';
+#	echo $sql;
+	$users = array();
+	$res  = db_query($sql);
+	while ($row = db_fetch_array($res)) {
+		$users[] = $row;
+	}
+	
+#	helpful_debug($users);
+
+	$tablerows = array();
+	
+	foreach ($users as $u) {
+		$tablerows['uid' . $u['uid']] = '';
+		$form['uid' . $u['uid']]['mail'] = array(
+			'#value' => $u['mail']
+		);
+		$form['uid' . $u['uid']]['login'] = array(
+			'#value' => ($u['login'] > 0) ? date('m/d/Y g:i A', $u['login']) : '-'
+		);
+	}
+		
+	$form['tablerows'] = array(
+		'#type' => 'checkboxes',
+		'#options' => $tablerows,
+		'#attributes' => array('style' => 'display:none;')
+	);
+	
+	$form['#theme'] = 'last_login_theme';	
+
+#	helpful_debug($form);	
+#	exit;
+	
+	return $form;
+
+}
+
+/**
+ * hook_submit
+ */
+function last_login_go_submit($form, &$form_state) {
+
+	$rid = $form_state['values']['role'];
+	drupal_goto('last_login/' . $rid);
+
+}
+
+
+
+/**
+ * hook_theme
+ */
+function last_login_theme() {
+  return array
+  (
+    'last_login_theme' => array
+    (
+      'arguments' => array
+      (
+        'form' => NULL, // form themes only ever have one argument - the form element
+      ),
+    ),
+  );
+}
+
+
+/**
+ * Theme last_login.
+ */
+function theme_last_login_theme($form) {
+  $rows = array();
+  
+  foreach(element_children($form['tablerows']) as $key) 
+  {
+    $row = array(); 
+    foreach (element_children($form[$key]) as $fk) {
+    	$row[] = drupal_render($form[$key][$fk]);
+    }
+    $rows[] = $row;
+  }
+ 
+  if(count($rows)) {
+    $header = array(
+    	t('Email'),
+    	t('Last Login')
+   	); 
+  } else {
+    $header = array(t('Sorry')); 
+    $row = array();
+    $row[] = array
+    (
+      'data' => t('No records were found'),
+      'colspan' => 2,
+      'style' => 'text-align:center'
+    );
+    $rows[] = $row;
+  }
+   
+  $output = theme('table', $header, $rows);  
+  return drupal_render($form) . $output; 
+}

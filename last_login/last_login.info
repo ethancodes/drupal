@@ -1,0 +1,5 @@
+name = Last Login
+description = Produces a "report" of users and their last login time stamps, organized by role.
+core = 6.x
+package = Other
+php = 5.1
