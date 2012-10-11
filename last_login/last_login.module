@@ -56,6 +56,11 @@ function last_login_go($foo, $rid = -1) {
 
 #	helpful_debug($rid, 'rid');
 
+	$sort = 'mail';
+	if (array_key_exists('sort', $_REQUEST)) {
+		$sort = trim(strip_tags($_REQUEST['sort']));
+	}
+
 	$form = array();
 
 	$roles = user_roles(true);
@@ -77,7 +82,7 @@ function last_login_go($foo, $rid = -1) {
 	$sql .= 'FROM users, users_roles ';
 	$sql .= 'WHERE users.uid = users_roles.uid ';
 	if ($rid > 0) $sql .= 'AND users_roles.rid = "' . $rid . '" ';
-	$sql .= 'ORDER BY mail ';
+	$sql .= 'ORDER BY ' . $sort;
 #	echo $sql;
 	$users = array();
 	$res  = db_query($sql);
@@ -157,11 +162,21 @@ function theme_last_login_theme($form) {
     }
     $rows[] = $row;
   }
+  
+  $current_url = current(explode("?", $_SERVER['REQUEST_URI']));
  
   if(count($rows)) {
     $header = array(
-    	t('Email'),
-    	t('Last Login')
+    	l(
+    		t('Email'),
+    		substr($current_url, 1),
+    		array('query' => array('sort' => 'mail'))
+    	),
+    	l(
+    		t('Last Login'), 
+    		substr($current_url, 1),
+    		array('query' => array('sort' => 'login'))
+    	)
    	); 
   } else {
     $header = array(t('Sorry')); 
