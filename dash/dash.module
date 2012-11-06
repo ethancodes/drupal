@@ -1,0 +1,322 @@
+<?php
+
+/**
+ * @file
+ * DASH module
+ *
+ * Allows you to assign one or more dashboards to a user role.
+ * Assumes you are using <front> to display the dashboard.
+ * Provides a widget so that if the current user has more than one possible dashboard
+ * they can pick which one to view.
+ * Last dashboard used is stored in db variable.
+ * Dashboard will try to load from said db variable, so that you always see the last dashboard you used.
+ * 
+ * Dashboard files should look like
+ * dashboard-whatever-you-want.php
+ * And be stored in your theme folder.
+ *
+ * Then you can do something like this.
+ * $dashes = dash_get_for_user();
+ * $dash_last = 'dashboard-please_log_in.php';
+ * if (count($dashes) == 1) {
+ *   $dast_last = $dashes[0];
+ * } else {
+ *  $last = dash_get_last();
+ *  if ($last) $dash_last = $last;
+ * }
+ * include $dash_last;
+ *
+ */
+
+
+/**
+ * hook_perm
+ * - set dash
+ */
+function dash_perm() {
+	return array('set dash');
+}
+
+
+/**
+ * hook_menu
+ */
+function dash_menu() {
+	$items = array();
+	
+	$items['admin/settings/dash'] = array(
+		'title' => 'Dash',
+		'page callback' => 'drupal_get_form',
+		'page arguments' => array('dash_admin'),
+		'access callback' => 'user_access',
+		'access arguments' => array('set dash'),
+		'type' => MENU_NORMAL_ITEM
+	);
+	
+	$items['dash/switch/%value'] = array(
+		'title' => 'Switch Dash',
+		'page callback' => 'dash_switch',
+		'page arguments' => array(2),
+		'access callback' => true,
+		'type' => MENU_CALLBACK
+	);
+		
+	return $items;
+}
+
+
+/**
+ * Get a list of dashboard files in the current theme.
+ *
+ * @return array
+ */
+function dash_get_files() {
+	$files = array();
+	
+	$path = path_to_theme();
+	$d = opendir($path);
+	while ($f = readdir($d)) {
+		if (substr($f, 0, 9) == 'dashboard' && substr($f, strlen(f) - 4) == 'php') {
+			$x = str_replace('dashboard', '', $f);
+			$x = str_replace('php', '', $x);
+			$x = preg_replace('/[^a-zA-Z0-9]/', '', $x);
+			$files[$f] = $f;
+		}
+	}
+	closedir($d);
+	
+	ksort($files);
+	
+	return $files;
+}
+
+
+/**
+ * Remove all dashboards for a role.
+ *
+ * @param int $rid the role id
+ */
+function dash_remove_dashboards($rid) {
+	$sql = 'DELETE FROM dash_settings WHERE rid = "' . $rid . '"';
+	db_query($sql);
+}
+
+
+/**
+ * Add one or more dashboards for a role.
+ *
+ * @param int $rid the role id
+ * @param array $dash_files the dashboard filenames this role can use
+ */
+function dash_add_dashboards($rid, $dash_files = array()) {
+
+	foreach ($dash_files as $df) {
+		$sql  = 'INSERT INTO dash_settings (rid, dash_file) ';
+		$sql .= 'VALUES (';
+		$sql .= '"' . $rid . '", ';
+		$sql .= '"' . $df . '"';
+		$sql .= ')';
+		db_query($sql);
+	}
+
+}
+
+
+/**
+ * What dashboard files does this role have access to?
+ *
+ * @param int $rid
+ *
+ * @return array
+ */
+function dash_get_for_role($rid) {
+	$files = array();
+	
+	$dashes = dash_get_files();
+	$sql  = 'SELECT dash_file ';
+	$sql .= 'FROM dash_settings ';
+	$sql .= 'WHERE rid = "' . $rid . '" ';
+	$res  = db_query($sql);
+	while ($row = db_fetch_array($res)) {
+		$df = $row['dash_file'];
+		// let's make sure this file still exists
+		if (in_array($df, $dashes)) $files[] = $df;
+	}
+	
+	return $files;
+}
+
+
+/**
+ * Get ALL of the dashboards for the current user.
+ *
+ * @return array
+ */
+function dash_get_for_user() {
+	$files = array();
+	global $user;
+	foreach ($user->roles as $rid => $role_name) {
+		$files = array_merge($files, dash_get_for_role($rid));
+	}
+	$files = array_unique($files);
+	return $files;
+}
+
+
+/**
+ * Get the last dashboard this user used.
+ * If nothing, return the first one available.
+ *
+ * @return string
+ */
+function dash_get_last() {
+	$last = '';
+	
+	global $user;
+	$sql = 'SELECT dash_file FROM dash_last WHERE uid = "' . $user->uid . '" LIMIT 1';
+	$res = db_result(db_query($sql));
+	if ($res === false) {
+		$dashes = dash_get_for_user();
+		$last = $dashes[0];
+	} else {
+		$last = $res;
+	}
+	
+	return $last;
+}
+
+
+/**
+ * admin settings
+ */
+function dash_admin() {
+
+	$roles = user_roles();
+	$dashes = dash_get_files();
+	
+#	helpful_debug($dashes);
+	
+	$form = array();
+	
+	foreach ($roles as $rid => $role_name) {
+		$form['role_' . $rid] = array(
+			'#type' => 'fieldset',
+			'#title' => $role_name
+		);
+		$form['role_' . $rid]['rid_' . $rid] = array(
+			'#type' => 'checkboxes',
+			'#title' => 'Dashboards',
+			'#description' => 'Select the dashboards available to this role',
+			'#options' => $dashes,
+			'#default_value' => dash_get_for_role($rid)
+		);
+	}
+	
+	
+	$form['save'] = array(
+		'#type' => 'submit',
+		'#value' => 'Save'
+	);
+	
+	return $form;
+}
+
+
+/** admin hook_submit
+ */
+function dash_admin_submit($form, &$form_state) {
+
+	$dashes = dash_get_files();
+
+	foreach ($form_state['values'] as $key => $value) {
+		if (substr($key, 0, 4) == 'rid_') {
+			$rid = substr($key, 4);
+			$dash_files = array();
+			foreach ($value as $dash_file => $selected) {
+				if ($selected) $dash_files[] = $dash_file;
+			}
+			
+			dash_remove_dashboards($rid);
+			if (count($dash_files)) {
+				dash_add_dashboards($rid, $dash_files);
+			}
+			
+		}
+	}
+	
+	drupal_set_message('Settings updated!');
+}
+
+
+/**
+ * Switch which dashboard you're using.
+ */
+function dash_switch($foo = '') {
+	if ($foo == '') drupal_goto('/');
+
+	// okay so let's make sure you have access to this dashboard
+	$files = dash_get_for_user();
+	if (!in_array($foo, $files)) drupal_goto('/');
+	
+	global $user;
+	$sql = 'DELETE FROM dash_last WHERE uid = "' . $user->uid . '"';
+	db_query($sql);
+	$sql  = 'INSERT INTO dash_last (uid, dash_file) VALUES (';
+	$sql .= '"' . $user->uid . '", "' . $foo . '"';
+	$sql .= ')';
+	db_query($sql);
+	
+	drupal_goto('/');
+}
+
+
+/**
+ * A widget, a select box that allows you to switch which dashboard you're looking at.
+ *
+ * @param string $dash the currently selected dashboard
+ *
+ * @return string
+ */
+function dash_widget($dash = '') {
+	$dashes = dash_get_for_user();
+	
+	$output  = '<script type="text/javascript">';
+	$output .= 'function dash_switch(o) { ';
+	$output .= 'var si = o.selectedIndex; ';
+	$output .= 'var v = o.options[si].value; ';
+	$output .= 'window.location = "/dash/switch/" + v; ';
+	$output .= '} ';
+	$output .= '</script>';
+	
+	$output .= '<select onchange="dash_switch(this);">';
+	
+	foreach ($dashes as $d) {
+		$output .= '<option value="' . $d . '"';
+		if ($d == $dash) $output .= ' selected="selected"';
+		$output .= '>' . dash_pretty($d) . '</option>';
+	}
+	
+	$output .= '</select>';
+	
+	return $output;
+}
+
+
+/**
+ * Let's see if we can make this "name" prettier.
+ *
+ * @param string $ugly
+ *
+ * @return string
+ */
+function dash_pretty($ugly) {
+
+	$prettier = str_replace("dashboard", "", $ugly);
+	$prettier = str_replace(".php", "", $prettier);
+	$prettier = preg_replace('/[^a-zA-Z0-9]/', ' ', $prettier);
+	
+	return $prettier;
+
+}
+
+

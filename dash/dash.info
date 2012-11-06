@@ -1,0 +1,5 @@
+name = Dash
+description = Manage user dashboards.
+core = 6.x
+package = Z5
+php = 5.1
