@@ -121,7 +121,11 @@ function topiary_admin_list() {
 	if (count($roleforests)) {
 		$list = '';
 		foreach ($roleforests as $topiary_id => $topiary_role) {
-			$list .= '<li><a href="/admin/settings/topiary/edit/' . $topiary_id . '">' . $roles[$topiary_role] . '</a></li>';
+			if (array_key_exists($topiary_role, $roles)) {
+				$list .= '<li><a href="/admin/settings/topiary/edit/' . $topiary_id . '">' . $roles[$topiary_role] . '</a></li>';
+			} else {
+				topiary_delete_menuforest($topiary_id);
+			}
 		}
 	}
 	
@@ -349,10 +353,7 @@ function topiary_admin_form_submit($form, &$form_state) {
 	$topiary_id = $values['topiary_id'];
 	
 	if ($values['op'] == 'Delete') {
-		$sql = 'DELETE FROM topiary_tree WHERE topiary_id = "' . $topiary_id . '" ';
-		db_query($sql);
-		$sql = 'DELETE FROM topiary WHERE topiary_id = "' . $topiary_id . '" ';
-		db_query($sql);
+		topiary_delete_menuforest($topiary_id);
 		drupal_set_message('Roleforest deleted.');
 		drupal_goto('admin/settings/topiary');
 	}
@@ -651,6 +652,19 @@ function topiary_test_nids() {
 	global $user;
 	helpful_debug(topiary_nids($user->roles));
 	exit;
+}
+
+
+/**
+ * Low level delete this roleforest function.
+ *
+ * @param in4 $topiary_id
+ */
+function topiary_delete_menuforest($topiary_id) {
+	$sql = 'DELETE FROM topiary_tree WHERE topiary_id = "' . $topiary_id . '" ';
+	db_query($sql);
+	$sql = 'DELETE FROM topiary WHERE topiary_id = "' . $topiary_id . '" ';
+	db_query($sql);
 }
 
 
