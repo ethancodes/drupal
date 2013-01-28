@@ -221,6 +221,8 @@ function helpful_db_insert_serialized($table, $data) {
 		
 	}
 	$sql .= 'VALUES (' . implode(', ', $values) . ') ';
+	
+#	helpful_debug($sql); helpful_debug($args); exit;
 		
 	db_query($sql, $args);
 	return db_result(db_query('SELECT LAST_INSERT_ID()'));
@@ -338,6 +340,20 @@ function helpful_user_has_role($role, $user = NULL) {
  */
 function helpful_user_email($uid) {
 	$sql = 'SELECT mail FROM users WHERE uid = ' . $uid;
+	return db_result(db_query($sql));
+}
+
+
+/**
+ * Get the user id for email address.
+ *
+ * @param string $email
+ *
+ * @return int
+ */
+function helpful_userid($email) {
+	$sql = 'SELECT uid FROM users WHERE mail = "' . $email . '" ';
+	helpful_debug($sql);
 	return db_result(db_query($sql));
 }
 
@@ -832,6 +848,39 @@ function helpful_str_extract($haystack, $start, $end, $include_start_end = true)
 function helpful_str_to_number($v) {
 	$v = preg_replace('/[^0-9\.]/', '', $v);
 	return (float)$v;
+}
+
+
+/**
+ * Right pad a string.
+ * For example, "foo" to 5 would be "foo  "
+ *
+ * @param string $s the string to pad
+ * @param int $num the number to pad to
+ * @param string $ch the character to pad with
+ *
+ * @return string
+ */
+function helpful_str_rpad($s, $num, $ch = " ") {
+	if (strlen($s) >= $num) return $s;
+	$s .= str_repeat($ch, $num);
+	return substr($s, 0, $num);
+}
+
+/**
+ * Left pad a string.
+ * For example, "foo" to 5 would be "  foo"
+ *
+ * @param string $s the string to pad
+ * @param int $num the number to pad to
+ * @param string $ch the character to pad with
+ *
+ * @return string
+ */
+function helpful_str_lpad($s, $num, $ch = " ") {
+	if (strlen($s) >= $num) return $s;
+	$s = str_repeat($ch, $num) . $s;
+	return substr($s, strlen($s) - $num);
 }
 
 
@@ -1490,14 +1539,15 @@ function helpful_form_file_upload($fieldname, $label) {
  * Build me a nice little cancel button for Forms API.
  *
  * @param string $url where to go when Cancel is clicked
+ * @param int $weight
  *
  * @return array
  */
-function helpful_form_cancel($url) {
+function helpful_form_cancel($url, $weight = 0) {
 	$cancel_button  = '<button type="button" class="nabcepbutton" ';
 	$cancel_button .= 'onclick="javascript:goURL(\'' . $url . '\');"';
 	$cancel_button .= '>Cancel</button>';
-	return array('#value' => $cancel_button);
+	return array('#value' => $cancel_button, '#weight' => $weight);
 }
 
 
@@ -1857,7 +1907,7 @@ function helpful_domain_name() {
  */
 function helpful_email_headers($name = 'Chad Wolf') {
 	$headers  = "From: " . $name . " <mynabcep@nabcep.org>\r\n";
+	$headers .= "Cc: myNABCEP Archive <myarchive@nabcep.org>\r\n";
 	$headers .= "Content-Type: text/html; charset=UTF-8; format=flowed\r\n";
 	return $headers;
 }
-
